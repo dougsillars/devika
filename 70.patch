@@ -1,0 +1,170 @@
+From 3232986b5a6b4fc8f1a4ab73e51eba78b58afd23 Mon Sep 17 00:00:00 2001
+From: its-arun <arun.11601678@lpu.in>
+Date: Sat, 23 Mar 2024 11:02:25 +0530
+Subject: [PATCH 1/2] Add support to for custom OpenAI API Base URL and
+ DuckDuckGoSearch
+
+---
+ config.toml              |  4 ++++
+ requirements.txt         |  3 ++-
+ src/agents/agent.py      | 18 ++++++++++++++----
+ src/browser/search.py    | 11 +++++++++++
+ src/config.py            |  6 ++++++
+ src/llm/openai_client.py |  2 ++
+ 6 files changed, 39 insertions(+), 5 deletions(-)
+
+diff --git a/config.toml b/config.toml
+index 8e45dbcf..68ca3bb1 100644
+--- a/config.toml
++++ b/config.toml
+@@ -14,3 +14,7 @@ OPENAI = "<YOUR_OPENAI_API_KEY>"
+ 
+ [API_ENDPOINTS]
+ BING = "https://api.bing.microsoft.com/v7.0/search"
++OPENAI_BASE_URL = "https://api.openai.com/v1"
++
++[USER_PREFS]
++SEARCH_ENGINE = "Bing" # Possible Values: Bing, DDGS. Default Value: Bing
+\ No newline at end of file
+diff --git a/requirements.txt b/requirements.txt
+index 53496f48..92c52894 100644
+--- a/requirements.txt
++++ b/requirements.txt
+@@ -20,4 +20,5 @@ keybert
+ GitPython
+ netlify-py
+ Markdown
+-xhtml2pdf
+\ No newline at end of file
++xhtml2pdf
++duckduckgo_search
+\ No newline at end of file
+diff --git a/src/agents/agent.py b/src/agents/agent.py
+index 204360ca..fb9f88c1 100644
+--- a/src/agents/agent.py
++++ b/src/agents/agent.py
+@@ -17,12 +17,13 @@
+ 
+ from src.bert.sentence import SentenceBert
+ from src.memory import KnowledgeBase
+-from src.browser.search import BingSearch
++from src.browser.search import *
+ from src.browser import Browser
+ from src.browser import start_interaction
+ from src.filesystem import ReadCode
+ from src.services import Netlify
+ from src.documenter.pdf import PDF
++from src.config import Config
+ 
+ import json
+ import time
+@@ -63,7 +64,16 @@ def search_queries(self, queries: list, project_name: str) -> dict:
+         results = {}
+         
+         knowledge_base = KnowledgeBase()
+-        bing_search = BingSearch()
++        user_search_engine = Config().get_search_engine()
++
++        if user_search_engine == "DDGS":
++            search_engine = DuckDuckGoSearch()
++        else:
++            """
++            Set default search engine to Bing
++            """
++            search_engine = BingSearch()
++            
+         browser = Browser()
+ 
+         for query in queries:
+@@ -80,8 +90,8 @@ def search_queries(self, queries: list, project_name: str) -> dict:
+             """
+             Search for the query and get the first link
+             """
+-            bing_search.search(query)
+-            link = bing_search.get_first_link()
++            search_engine.search(query)
++            link = search_engine.get_first_link()
+ 
+             """
+             Browse to the link and take a screenshot, then extract the text
+diff --git a/src/browser/search.py b/src/browser/search.py
+index daa22d84..41954db3 100644
+--- a/src/browser/search.py
++++ b/src/browser/search.py
+@@ -1,5 +1,6 @@
+ import requests
+ from src.config import Config
++from duckduckgo_search import DDGS
+ 
+ class BingSearch:
+     def __init__(self):
+@@ -23,3 +24,13 @@ def search(self, query):
+     def get_first_link(self):
+         return self.query_result["webPages"]["value"][0]["url"]
+ 
++class DuckDuckGoSearch:
++    def search(self, query):
++        try:
++            self.query_result = DDGS().text(query, max_results=5)
++            return self.query_result
++        except Exception as err:
++            return err
++
++    def get_first_link(self):
++        return self.query_result[0]["href"]
+\ No newline at end of file
+diff --git a/src/config.py b/src/config.py
+index 4f0d06bb..a43540a7 100644
+--- a/src/config.py
++++ b/src/config.py
+@@ -40,6 +40,12 @@ def get_logs_dir(self):
+     def get_repos_dir(self):
+         return self.config["STORAGE"]["REPOS_DIR"]
+     
++    def get_openai_base_url(self):
++        return self.config["API_ENDPOINTS"]["OPENAI_BASE_URL"]
++    
++    def get_search_engine(self):
++        return self.config["USER_PREFS"]["SEARCH_ENGINE"]
++    
+     def set_bing_api_key(self, key):
+         self.config["API_KEYS"]["BING"] = key
+         self.save_config()
+diff --git a/src/llm/openai_client.py b/src/llm/openai_client.py
+index 9c194616..0f7dfc25 100644
+--- a/src/llm/openai_client.py
++++ b/src/llm/openai_client.py
+@@ -6,8 +6,10 @@ class OpenAI:
+     def __init__(self):
+         config = Config()
+         api_key = config.get_openai_api_key()
++        base_url = config.get_openai_base_url()
+         self.client = OAI(
+             api_key=api_key,
++            base_url=base_url
+         )
+         
+     def inference(self, model_id: str, prompt: str) -> str:
+
+From d80eb55a576873cefc18b615e5c9b80b28ae7ae8 Mon Sep 17 00:00:00 2001
+From: Arun Chaudhary <arun.11601678@lpu.in>
+Date: Mon, 25 Mar 2024 18:20:45 +0530
+Subject: [PATCH 2/2] Explicit Imports
+
+---
+ src/agents/agent.py | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/agents/agent.py b/src/agents/agent.py
+index fb9f88c1..ab9b3838 100644
+--- a/src/agents/agent.py
++++ b/src/agents/agent.py
+@@ -17,7 +17,7 @@
+ 
+ from src.bert.sentence import SentenceBert
+ from src.memory import KnowledgeBase
+-from src.browser.search import *
++from src.browser.search import BingSearch, DuckDuckGoSearch
+ from src.browser import Browser
+ from src.browser import start_interaction
+ from src.filesystem import ReadCode
